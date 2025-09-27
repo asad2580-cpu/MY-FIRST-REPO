@@ -1,12 +1,17 @@
 import streamlit as st
 import json
 import os
+from datetime import datetime
 from PIL import Image
 import io
 from pdf2image import convert_from_bytes
 from transaction_extractor import TransactionExtractor
 from tally_xml_generator import TallyXMLGenerator
 from gst_processor import GSTProcessor
+from invoice_extractor import InvoiceExtractor
+from invoice_xml_generator import InvoiceXMLGenerator
+from gst_portal_json_generator import GSTPortalJSONGenerator
+from gst_tally_xml_generator import GSTTallyXMLGenerator
 
 # Set page configuration
 st.set_page_config(
@@ -432,7 +437,7 @@ def process_bank_statements(company_name: str):
 def process_invoices(company_name: str, company_state: str | None):
     """Handle invoice processing."""
     st.subheader("📄 Invoice Processing")
-    st.markdown("Upload invoice images (PNG/PDF) to extract transaction data and generate purchase/sales vouchers")
+    st.markdown("Upload invoice images to extract transaction data and generate purchase/sales vouchers")
     
     if not company_name or not company_state:
         st.warning("⚠️ Please configure company name and state in the settings above")
@@ -446,172 +451,537 @@ def process_invoices(company_name: str, company_state: str | None):
     )
     
     # File uploader for invoices
-    uploaded_files = st.file_uploader(
-        "Choose invoice files",
+    uploaded_file = st.file_uploader(
+        "Choose an invoice file",
         type=['png', 'jpg', 'jpeg', 'pdf'],
-        accept_multiple_files=True,
-        help="Upload clear images or PDFs of your invoices",
+        help="Upload a clear image or PDF of your invoice",
         key="invoice_uploader"
     )
     
-    if uploaded_files:
-        st.info(f"📁 {len(uploaded_files)} file(s) uploaded. Processing will be available soon.")
+    if uploaded_file is not None:
+        # Convert file to PNG format for processing
+        try:
+            png_bytes = convert_file_to_png_bytes(uploaded_file)
+            original_format = uploaded_file.name.lower().split('.')[-1].upper()
+        except Exception as e:
+            st.error(f"Error processing file: {str(e)}")
+            return
         
-        # Placeholder for invoice processing
-        with st.expander("🔮 Coming Soon - Invoice Processing Features"):
-            st.markdown("""
-            **Planned Features:**
-            - 🔍 AI-powered invoice data extraction
-            - 📊 Automatic GST calculation and bifurcation
-            - 🏢 Vendor/customer master creation
-            - 📦 Item master management
-            - 💰 Accurate debit/credit mapping
-            - 🔄 Purchase/Sales voucher XML generation
-            - 📝 Descriptive ledger naming (Local Purchase 18%, Input IGST 18%, etc.)
-            """)
+        # Display uploaded file
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            st.subheader(f"📄 Uploaded {original_format} File")
+            try:
+                display_image = Image.open(io.BytesIO(png_bytes))
+                st.image(display_image, caption=f"Invoice ({original_format})", use_column_width=True)
+                st.info(f"**File Details:**\n- Original Format: {original_format}\n- Size: {display_image.size[0]} x {display_image.size[1]} pixels")
+            except Exception as e:
+                st.error(f"Error displaying image: {str(e)}")
+                return
+        
+        with col2:
+            st.subheader("🔄 Invoice Data Extraction")
+            
+            # Check if invoice data is already extracted
+            if f'extracted_invoice_{invoice_type}' in st.session_state and st.session_state.get(f'invoice_extraction_completed_{invoice_type}', False):
+                invoice_data = st.session_state[f'extracted_invoice_{invoice_type}']
+                st.success(f"✅ Invoice data already extracted!")
+                if st.button("🔄 Re-extract Invoice Data", type="secondary"):
+                    # Clear existing data and re-extract
+                    if f'extracted_invoice_{invoice_type}' in st.session_state:
+                        del st.session_state[f'extracted_invoice_{invoice_type}']
+                    if f'invoice_extraction_completed_{invoice_type}' in st.session_state:
+                        del st.session_state[f'invoice_extraction_completed_{invoice_type}']
+                    if f'invoice_xml_{invoice_type}' in st.session_state:
+                        del st.session_state[f'invoice_xml_{invoice_type}']
+                    st.rerun()
+            else:
+                if st.button("Extract Invoice Data", type="primary"):
+                    try:
+                        # Show progress
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        status_text.text("🔍 Analyzing invoice...")
+                        progress_bar.progress(25)
+                        
+                        # Get invoice extractor
+                        @st.cache_resource
+                        def get_invoice_extractor():
+                            return InvoiceExtractor()
+                        
+                        extractor = get_invoice_extractor()
+                        
+                        status_text.text("🤖 Processing with AI...")
+                        progress_bar.progress(50)
+                        
+                        # Extract invoice data
+                        invoice_data = extractor.extract_invoice_data(
+                            png_bytes, 
+                            invoice_type.replace(' Invoice', '').lower(),
+                            company_state
+                        )
+                        
+                        status_text.text("✅ Complete!")
+                        progress_bar.progress(100)
+                        
+                        # Store invoice data in session state
+                        st.session_state[f'extracted_invoice_{invoice_type}'] = invoice_data
+                        st.session_state[f'invoice_extraction_completed_{invoice_type}'] = True
+                        
+                        # Clear progress indicators
+                        progress_bar.empty()
+                        status_text.empty()
+                        
+                        if invoice_data:
+                            st.success(f"🎉 Successfully extracted invoice data!")
+                        else:
+                            st.warning("⚠️ No invoice data found. Please ensure the image is clear and contains invoice information.")
+                            
+                    except Exception as e:
+                        st.error(f"❌ Error processing invoice: {str(e)}")
+        
+        # Display extracted invoice data if available
+        if f'extracted_invoice_{invoice_type}' in st.session_state and st.session_state.get(f'invoice_extraction_completed_{invoice_type}', False):
+            invoice_data = st.session_state[f'extracted_invoice_{invoice_type}']
+            
+            if invoice_data:
+                st.divider()
+                st.subheader("📋 Extracted Invoice Data")
+                
+                # Create tabs for different views
+                tab1, tab2, tab3, tab4 = st.tabs(["📊 Invoice Details", "📄 JSON View", "🔄 Tally XML", "💾 Download"])
+                
+                with tab1:
+                    # Display invoice details
+                    col_info1, col_info2 = st.columns(2)
+                    
+                    with col_info1:
+                        st.markdown("**Invoice Information:**")
+                        st.write(f"Invoice Number: {invoice_data.get('invoice_number', 'N/A')}")
+                        st.write(f"Invoice Date: {invoice_data.get('invoice_date', 'N/A')}")
+                        
+                        if invoice_type == "Purchase Invoice":
+                            st.write(f"Vendor: {invoice_data.get('vendor_name', 'N/A')}")
+                            st.write(f"Vendor GSTIN: {invoice_data.get('vendor_gstin', 'N/A')}")
+                        else:
+                            st.write(f"Customer: {invoice_data.get('buyer_name', 'N/A')}")
+                            st.write(f"Customer GSTIN: {invoice_data.get('buyer_gstin', 'N/A')}")
+                    
+                    with col_info2:
+                        st.markdown("**Amount Details:**")
+                        st.write(f"Taxable Value: ₹{invoice_data.get('total_taxable_value', 0):,.2f}")
+                        st.write(f"CGST: ₹{invoice_data.get('total_cgst', 0) or 0:,.2f}")
+                        st.write(f"SGST: ₹{invoice_data.get('total_sgst', 0) or 0:,.2f}")
+                        st.write(f"IGST: ₹{invoice_data.get('total_igst', 0) or 0:,.2f}")
+                        st.write(f"**Total: ₹{invoice_data.get('total_invoice_value', 0):,.2f}**")
+                    
+                    # Display items
+                    if invoice_data.get('items'):
+                        st.subheader("📦 Line Items")
+                        import pandas as pd
+                        items_df = pd.DataFrame(invoice_data['items'])
+                        st.dataframe(items_df, use_container_width=True)
+                
+                with tab2:
+                    # Display as JSON
+                    json_str = json.dumps(invoice_data, indent=2)
+                    st.code(json_str, language="json")
+                
+                with tab3:
+                    # Tally XML Generation
+                    st.subheader("🔄 Generate Tally XML")
+                    
+                    try:
+                        # Initialize XML generator
+                        xml_generator = InvoiceXMLGenerator(company_name, company_state)
+                        
+                        if st.button("🔄 Generate Tally XML", type="primary"):
+                            with st.spinner("Generating Tally XML..."):
+                                if invoice_type == "Purchase Invoice":
+                                    xml_content = xml_generator.generate_purchase_xml(invoice_data)
+                                else:
+                                    xml_content = xml_generator.generate_sales_xml(invoice_data)
+                                
+                                st.success("✅ Tally XML generated successfully!")
+                                
+                                # Display XML preview (first 2000 chars)
+                                st.subheader("📄 XML Preview")
+                                preview_xml = xml_content[:2000]
+                                if len(xml_content) > 2000:
+                                    preview_xml += "\n... (truncated, full XML available in download)"
+                                
+                                st.code(preview_xml, language="xml")
+                                
+                                # Store XML in session state for download
+                                st.session_state[f'invoice_xml_{invoice_type}'] = xml_content
+                                
+                                # Quick info about the XML
+                                st.info(f"""
+                                **XML Details:**
+                                - Invoice Type: {invoice_type}
+                                - Company: {company_name}
+                                - Items: {len(invoice_data.get('items', []))}
+                                - XML Size: {len(xml_content)} characters
+                                """)
+                                
+                    except Exception as e:
+                        st.error(f"❌ Error generating XML: {str(e)}")
+                
+                with tab4:
+                    # Download options
+                    st.subheader("💾 Download Options")
+                    
+                    col_dl1, col_dl2, col_dl3 = st.columns(3)
+                    
+                    with col_dl1:
+                        # JSON download
+                        json_str = json.dumps(invoice_data, indent=2)
+                        st.download_button(
+                            label="📄 Download JSON",
+                            data=json_str,
+                            file_name=f"invoice_{invoice_type.lower().replace(' ', '_')}.json",
+                            mime="application/json"
+                        )
+                    
+                    with col_dl2:
+                        # CSV download for items
+                        if invoice_data.get('items'):
+                            import pandas as pd
+                            df = pd.DataFrame(invoice_data['items'])
+                            csv = df.to_csv(index=False)
+                            st.download_button(
+                                label="📊 Download Items CSV",
+                                data=csv,
+                                file_name=f"invoice_items_{invoice_type.lower().replace(' ', '_')}.csv",
+                                mime="text/csv"
+                            )
+                    
+                    with col_dl3:
+                        # Tally XML download
+                        if f'invoice_xml_{invoice_type}' in st.session_state:
+                            st.download_button(
+                                label="🔄 Download Tally XML",
+                                data=st.session_state[f'invoice_xml_{invoice_type}'],
+                                file_name=f"tally_{invoice_type.lower().replace(' ', '_')}.xml",
+                                mime="application/xml"
+                            )
+                        else:
+                            st.info("Generate XML first in Tally XML tab")
     
     # Instructions
     with st.expander("📖 How to use Invoice Processing"):
         st.markdown("""
-        ### Coming Soon:
-        - Support for both purchase and sales invoices
-        - Automatic GST bifurcation based on company state
-        - Smart ledger creation with descriptive names
-        - Masters import XML for new vendors/customers/items
+        ### Instructions:
+        1. **Select Type**: Choose Purchase or Sales invoice
+        2. **Upload Image**: Select a clear image of your invoice
+        3. **Extract Data**: Click "Extract Invoice Data" button
+        4. **Review Results**: Check the extracted invoice details and items
+        5. **Generate XML**: Create Tally-compatible XML for import
+        6. **Download**: Save the results as JSON, CSV, or XML
+        
+        ### Features:
+        - ✅ AI-powered invoice data extraction
+        - ✅ Automatic GST calculation and bifurcation
+        - ✅ Vendor/customer master creation in XML
+        - ✅ Item-wise tax calculation
+        - ✅ Purchase/Sales voucher XML generation
+        - ✅ Descriptive ledger naming (Purchase - Item, Input CGST 18%, etc.)
+        
+        ### Tips for better results:
+        - ✅ Use high-quality, clear images
+        - ✅ Ensure all text is readable
+        - ✅ Include complete invoice with all line items
+        - ✅ Make sure GST details are visible
         """)
 
 def process_gst_returns(company_name: str, company_state: str | None):
     """Handle GST return JSON processing."""
     st.subheader("📊 GST Return Processing")
-    st.markdown("Upload GST return JSON files (GSTR2B/2A/R1) to import bulk transactions into Tally")
+    st.markdown("Process GST returns: Upload JSON files to generate Tally XML or create GSTR1 upload files from sales invoices")
     
     if not company_name or not company_state:
         st.warning("⚠️ Please configure company name and state in the settings above")
         return
     
-    # GST return type selection with separate sections
-    st.markdown("### 📥 Upload GST Return Files")
-    st.markdown("Choose the appropriate GST return type and upload your JSON file:")
+    # Company GSTIN input
+    company_gstin = st.text_input(
+        "Company GSTIN",
+        placeholder="Enter your company's GSTIN (15 digits)",
+        help="Required for GST portal JSON generation and processing",
+        key="company_gstin_input"
+    )
     
-    # Create separate tabs for each GST return type
-    tab_gstr1, tab_gstr2a, tab_gstr2b = st.tabs(["📤 GSTR1 (Sales)", "📥 GSTR2A (Purchase - Auto)", "📊 GSTR2B (Purchase - Static)"])
+    if company_gstin and len(company_gstin) != 15:
+        st.warning("⚠️ GSTIN should be exactly 15 characters")
     
-    with tab_gstr1:
-        st.markdown("**GSTR1**: Outward supplies (Sales) - Upload JSON downloaded from GST portal")
-        gstr1_files = st.file_uploader(
-            "Choose GSTR1 JSON files",
-            type=['json'],
-            accept_multiple_files=True,
-            help="Upload GSTR1 JSON files downloaded from GST portal (Outward supplies)",
-            key="gstr1_uploader"
+    # Create tabs for different GST processing options
+    tab_upload, tab_create_gstr1, tab_bulk_process = st.tabs([
+        "📥 Upload GST JSON to Tally", 
+        "📤 Create GSTR1 from Sales Invoices", 
+        "🔄 Bulk Process GST Data"
+    ])
+    
+    with tab_upload:
+        st.subheader("📥 GST Portal JSON to Tally XML")
+        st.markdown("Upload downloaded GST portal JSON files (GSTR1, GSTR2A, GSTR2B) to generate Tally import XML")
+        
+        # GST return type selection
+        gst_return_type = st.selectbox(
+            "GST Return Type",
+            options=["GSTR1 (Sales)", "GSTR2A (Purchase)", "GSTR2B (Purchase)", "GSTR3B (Monthly Return)"],
+            help="Select the type of GST return you want to process"
         )
-        if gstr1_files:
-            process_gst_files(gstr1_files, "GSTR1", company_state)
-    
-    with tab_gstr2a:
-        st.markdown("**GSTR2A**: Auto-drafted inward supplies (Purchase) - Upload JSON downloaded from GST portal")
-        gstr2a_files = st.file_uploader(
-            "Choose GSTR2A JSON files",
+        
+        # File uploader for GST JSON
+        uploaded_gst_file = st.file_uploader(
+            "Upload GST Return JSON File",
             type=['json'],
-            accept_multiple_files=True,
-            help="Upload GSTR2A JSON files downloaded from GST portal (Auto-drafted inward supplies)",
-            key="gstr2a_uploader"
+            help="Upload the JSON file downloaded from GST portal",
+            key="gst_json_uploader"
         )
-        if gstr2a_files:
-            process_gst_files(gstr2a_files, "GSTR2A", company_state)
-    
-    with tab_gstr2b:
-        st.markdown("**GSTR2B**: Static ITC statement (Purchase) - Upload JSON downloaded from GST portal")
-        gstr2b_files = st.file_uploader(
-            "Choose GSTR2B JSON files",
-            type=['json'],
-            accept_multiple_files=True,
-            help="Upload GSTR2B JSON files downloaded from GST portal (Static ITC statement)",
-            key="gstr2b_uploader"
-        )
-        if gstr2b_files:
-            process_gst_files(gstr2b_files, "GSTR2B", company_state)
-
-def process_gst_files(uploaded_files, gst_return_type, company_state):
-    """Process GST return files based on type."""
-    st.success(f"📁 {len(uploaded_files)} {gst_return_type} file(s) uploaded successfully!")
-    
-    # Initialize GST processor
-    gst_processor = GSTProcessor(company_state)
-    
-    for uploaded_file in uploaded_files:
-        with st.expander(f"📄 Processing: {uploaded_file.name}"):
+        
+        if uploaded_gst_file is not None:
             try:
                 # Read and parse JSON
-                json_data = json.load(uploaded_file)
+                json_content = uploaded_gst_file.read().decode('utf-8')
+                gst_data = json.loads(json_content)
                 
-                # Process based on return type using updated methods
-                if gst_return_type == "GSTR1":
-                    transactions = gst_processor.process_gstr1(json_data)
-                    transaction_type_label = "Sales Transactions"
-                elif gst_return_type == "GSTR2A":
-                    transactions = gst_processor.process_gstr2a(json_data)
-                    transaction_type_label = "Purchase Transactions (Auto-drafted)"
-                elif gst_return_type == "GSTR2B":
-                    transactions = gst_processor.process_gstr2b(json_data)
-                    transaction_type_label = "Purchase Transactions (Static ITC)"
-                else:
-                    st.error(f"Unsupported GST return type: {gst_return_type}")
-                    continue
+                st.success(f"✅ {gst_return_type} JSON file loaded successfully!")
                 
-                if transactions:
-                    st.success(f"✅ Extracted {len(transactions)} {transaction_type_label.lower()}")
-                    
-                    # Display summary
-                    col1, col2, col3 = st.columns(3)
-                    
-                    total_value = sum(t.invoice_value for t in transactions)
-                    total_tax = sum(t.total_tax for t in transactions)
-                    interstate_count = sum(1 for t in transactions if t.is_interstate)
-                    
-                    with col1:
-                        st.metric("Total Transactions", len(transactions))
-                    with col2:
-                        st.metric("Total Value", f"₹{total_value:,.2f}")
-                    with col3:
-                        st.metric("Interstate Transactions", interstate_count)
-                    
-                    # Display transaction details in a table
-                    if len(transactions) > 0:
-                        import pandas as pd
-                        df_data = []
-                        for t in transactions:
-                            df_data.append({
-                                'Date': t.date,
-                                'Party': t.party_name,
-                                'Invoice No': t.invoice_number,
-                                'Taxable Value': f"₹{t.taxable_value:,.2f}",
-                                'IGST': f"₹{t.igst_amount:,.2f}",
-                                'CGST': f"₹{t.cgst_amount:,.2f}",
-                                'SGST': f"₹{t.sgst_amount:,.2f}",
-                                'Total Tax': f"₹{t.total_tax:,.2f}",
-                                'Invoice Value': f"₹{t.invoice_value:,.2f}",
-                                'Interstate': '✓' if t.is_interstate else '✗'
-                            })
-                        
-                        df = pd.DataFrame(df_data)
-                        st.dataframe(df, use_container_width=True)
-                        
-                        # Download option
-                        csv = df.to_csv(index=False)
-                        st.download_button(
-                            label=f"📊 Download {gst_return_type} Data as CSV",
-                            data=csv,
-                            file_name=f"{gst_return_type}_{uploaded_file.name.replace('.json', '')}.csv",
-                            mime="text/csv"
-                        )
-                else:
-                    st.warning(f"⚠️ No transactions found in {gst_return_type} file")
-                    
+                # Display file info
+                st.info(f"""
+                **File Details:**
+                - File Name: {uploaded_gst_file.name}
+                - File Size: {len(json_content)} characters
+                - Return Type: {gst_return_type}
+                - GSTIN: {gst_data.get('gstin', 'Not found')}
+                - Period: {gst_data.get('ret_period', gst_data.get('fp', 'Not found'))}
+                """)
+                
+                # Generate Tally XML
+                if st.button("🔄 Generate Tally XML from GST Data", type="primary"):
+                    if not company_gstin:
+                        st.error("❌ Please enter your company GSTIN first")
+                    else:
+                        try:
+                            with st.spinner("Generating Tally XML from GST data..."):
+                                # Initialize GST XML generator
+                                gst_xml_generator = GSTTallyXMLGenerator(company_name, company_state)
+                                
+                                # Generate XML based on return type
+                                if "GSTR1" in gst_return_type:
+                                    xml_content = gst_xml_generator.generate_gstr1_xml(gst_data)
+                                    xml_type = "Sales"
+                                elif "GSTR2A" in gst_return_type:
+                                    xml_content = gst_xml_generator.generate_gstr2a_xml(gst_data)
+                                    xml_type = "Purchase"
+                                elif "GSTR2B" in gst_return_type:
+                                    xml_content = gst_xml_generator.generate_gstr2b_xml(gst_data)
+                                    xml_type = "Purchase"
+                                else:
+                                    st.error(f"❌ {gst_return_type} processing not yet implemented")
+                                    return
+                                
+                                st.success("✅ Tally XML generated successfully!")
+                                
+                                # Display XML preview
+                                st.subheader("📄 XML Preview")
+                                preview_xml = xml_content[:2000]
+                                if len(xml_content) > 2000:
+                                    preview_xml += "\n... (truncated, full XML available in download)"
+                                
+                                st.code(preview_xml, language="xml")
+                                
+                                # Store XML for download
+                                st.session_state['gst_tally_xml'] = xml_content
+                                
+                                # Download button
+                                st.download_button(
+                                    label="💾 Download Tally XML",
+                                    data=xml_content,
+                                    file_name=f"tally_{gst_return_type.lower().replace(' ', '_').replace('(', '').replace(')', '')}.xml",
+                                    mime="application/xml"
+                                )
+                                
+                        except Exception as e:
+                            st.error(f"❌ Error generating XML: {str(e)}")
+                
             except json.JSONDecodeError as e:
                 st.error(f"❌ Invalid JSON file: {str(e)}")
             except Exception as e:
-                st.error(f"❌ Error processing {gst_return_type} file: {str(e)}")
+                st.error(f"❌ Error processing file: {str(e)}")
+    
+    with tab_create_gstr1:
+        st.subheader("📤 Create GSTR1 JSON from Sales Invoices")
+        st.markdown("Generate GST portal uploadable JSON file for GSTR1 from your processed sales invoices")
+        
+        if not company_gstin:
+            st.warning("⚠️ Please enter your company GSTIN above first")
+        else:
+            # Period selection
+            col_month, col_year = st.columns(2)
+            with col_month:
+                return_month = st.selectbox(
+                    "Return Month",
+                    options=[f"{i:02d}" for i in range(1, 13)],
+                    format_func=lambda x: datetime.strptime(x, "%m").strftime("%B"),
+                    help="Select the month for GSTR1"
+                )
+            
+            with col_year:
+                current_year = datetime.now().year
+                return_year = st.selectbox(
+                    "Return Year",
+                    options=[str(year) for year in range(current_year-2, current_year+1)],
+                    index=2,  # Default to current year
+                    help="Select the year for GSTR1"
+                )
+            
+            # Check for sales invoices in session state
+            sales_invoices = []
+            if 'extracted_invoice_Sales Invoice' in st.session_state:
+                sales_invoices.append(st.session_state['extracted_invoice_Sales Invoice'])
+            
+            # File uploader for multiple sales invoices JSON
+            uploaded_sales_files = st.file_uploader(
+                "Upload Sales Invoice JSON Files (Optional)",
+                type=['json'],
+                accept_multiple_files=True,
+                help="Upload JSON files of processed sales invoices to include in GSTR1",
+                key="sales_json_uploader"
+            )
+            
+            if uploaded_sales_files:
+                try:
+                    for file in uploaded_sales_files:
+                        json_content = file.read().decode('utf-8')
+                        invoice_data = json.loads(json_content)
+                        if invoice_data.get('invoice_type') == 'sales':
+                            sales_invoices.append(invoice_data)
+                    
+                    st.success(f"✅ Loaded {len(uploaded_sales_files)} sales invoice files")
+                except Exception as e:
+                    st.error(f"❌ Error loading sales invoice files: {str(e)}")
+            
+            if sales_invoices:
+                st.info(f"📋 Found {len(sales_invoices)} sales invoices for GSTR1 generation")
+                
+                if st.button("🔄 Generate GSTR1 JSON", type="primary"):
+                    try:
+                        with st.spinner("Generating GSTR1 JSON..."):
+                            # Initialize GSTR1 generator
+                            gstr1_generator = GSTPortalJSONGenerator(company_gstin, company_state)
+                            
+                            # Generate GSTR1 JSON
+                            gstr1_data = gstr1_generator.generate_gstr1_json(
+                                sales_invoices, return_month, return_year
+                            )
+                            
+                            # Validate data
+                            validation_result = gstr1_generator.validate_gstr1_data(gstr1_data)
+                            
+                            if validation_result['valid']:
+                                st.success("✅ GSTR1 JSON generated successfully!")
+                                
+                                # Display summary
+                                st.subheader("📊 GSTR1 Summary")
+                                col_sum1, col_sum2, col_sum3 = st.columns(3)
+                                
+                                with col_sum1:
+                                    st.metric("B2B Customers", len(gstr1_data.get('b2b', [])))
+                                with col_sum2:
+                                    st.metric("B2CL Invoices", len(gstr1_data.get('b2cl', [])))
+                                with col_sum3:
+                                    st.metric("B2CS Entries", len(gstr1_data.get('b2cs', [])))
+                                
+                                # Show HSN summary
+                                hsn_data = gstr1_data.get('hsn', {}).get('data', [])
+                                if hsn_data:
+                                    st.subheader("📦 HSN Summary")
+                                    import pandas as pd
+                                    hsn_df = pd.DataFrame(hsn_data)
+                                    st.dataframe(hsn_df, use_container_width=True)
+                                
+                                # JSON preview
+                                st.subheader("📄 GSTR1 JSON Preview")
+                                json_str = json.dumps(gstr1_data, indent=2)
+                                preview_json = json_str[:2000]
+                                if len(json_str) > 2000:
+                                    preview_json += "\n... (truncated, full JSON available in download)"
+                                
+                                st.code(preview_json, language="json")
+                                
+                                # Download button
+                                st.download_button(
+                                    label="💾 Download GSTR1 JSON",
+                                    data=json_str,
+                                    file_name=f"GSTR1_{company_gstin}_{return_month}{return_year}.json",
+                                    mime="application/json"
+                                )
+                                
+                                # Show validation warnings
+                                if validation_result['warnings']:
+                                    with st.expander("⚠️ Validation Warnings"):
+                                        for warning in validation_result['warnings']:
+                                            st.warning(warning)
+                            
+                            else:
+                                st.error("❌ GSTR1 validation failed:")
+                                for error in validation_result['errors']:
+                                    st.error(f"• {error}")
+                                
+                    except Exception as e:
+                        st.error(f"❌ Error generating GSTR1: {str(e)}")
+            
+            else:
+                st.info("💡 No sales invoices found. Process some sales invoices first or upload sales invoice JSON files.")
+    
+    with tab_bulk_process:
+        st.subheader("🔄 Bulk Process GST Data")
+        st.markdown("Advanced processing for multiple GST files and bulk operations")
+        
+        # Placeholder for bulk processing features
+        st.info("🔮 Advanced bulk processing features coming soon:")
+        st.markdown("""
+        **Planned Features:**
+        - 📁 Bulk upload multiple GST return files
+        - 🔄 Batch conversion to Tally XML
+        - 📊 Consolidated GST analysis and reports
+        - 🔍 Data validation and error checking
+        - 📈 GST compliance reports
+        - 💾 Bulk download processed files
+        """)
+    
+    # Instructions
+    with st.expander("📖 How to use GST Return Processing"):
+        st.markdown("""
+        ### 📥 Upload GST JSON to Tally:
+        1. **Download** your GST return JSON from GST portal
+        2. **Select** the appropriate return type (GSTR1, GSTR2A, GSTR2B)
+        3. **Upload** the JSON file
+        4. **Generate** Tally XML for direct import
+        
+        ### 📤 Create GSTR1 from Sales Invoices:
+        1. **Enter** your company GSTIN and select return period
+        2. **Upload** processed sales invoice JSON files
+        3. **Generate** GSTR1 JSON for portal upload
+        4. **Validate** and download the file
+        
+        ### Features:
+        - ✅ Convert GST portal JSON to Tally XML
+        - ✅ Generate GSTR1 from sales invoices
+        - ✅ Automatic GST bifurcation (CGST+SGST vs IGST)
+        - ✅ Smart party and ledger creation
+        - ✅ Data validation and error checking
+        - ✅ HSN-wise summary for GSTR1
+        - ✅ B2B, B2CL, B2CS categorization
+        
+        ### Supported Formats:
+        - **Input**: GST portal JSON files, Sales invoice JSON
+        - **Output**: Tally XML, GSTR1 JSON for portal upload
+        """)
     
     # GST Portal Offline JSON Generator
     st.divider()

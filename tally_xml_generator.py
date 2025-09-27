@@ -112,14 +112,26 @@ class TallyXMLGenerator:
         # Bank ledger entry
         bank_entry = ET.SubElement(voucher, "ALLLEDGERENTRIES.LIST")
         ET.SubElement(bank_entry, "LEDGERNAME").text = self.bank_ledger_name
-        ET.SubElement(bank_entry, "ISDEEMEDPOSITIVE").text = "No" if bank_is_debit else "Yes"
-        ET.SubElement(bank_entry, "AMOUNT").text = f"{transaction_amount:.2f}"
+        if bank_is_debit:
+            # Receipt: Bank is debited (money coming in)
+            ET.SubElement(bank_entry, "ISDEEMEDPOSITIVE").text = "No"
+            ET.SubElement(bank_entry, "AMOUNT").text = f"{transaction_amount:.2f}"
+        else:
+            # Payment: Bank is credited (money going out)
+            ET.SubElement(bank_entry, "ISDEEMEDPOSITIVE").text = "Yes"
+            ET.SubElement(bank_entry, "AMOUNT").text = f"-{transaction_amount:.2f}"
         
         # Suspense ledger entry (opposite of bank)
         suspense_entry = ET.SubElement(voucher, "ALLLEDGERENTRIES.LIST")
         ET.SubElement(suspense_entry, "LEDGERNAME").text = self.suspense_ledger_name
-        ET.SubElement(suspense_entry, "ISDEEMEDPOSITIVE").text = "Yes" if bank_is_debit else "No"
-        ET.SubElement(suspense_entry, "AMOUNT").text = f"{transaction_amount:.2f}"
+        if bank_is_debit:
+            # Receipt: Suspense is credited (source of money)
+            ET.SubElement(suspense_entry, "ISDEEMEDPOSITIVE").text = "Yes"
+            ET.SubElement(suspense_entry, "AMOUNT").text = f"-{transaction_amount:.2f}"
+        else:
+            # Payment: Suspense is debited (destination of money)
+            ET.SubElement(suspense_entry, "ISDEEMEDPOSITIVE").text = "No"
+            ET.SubElement(suspense_entry, "AMOUNT").text = f"{transaction_amount:.2f}"
     
     def _parse_amount(self, amount_str: Any) -> float:
         """Parse amount string to float."""
