@@ -119,7 +119,7 @@ class TallyXMLGenerator:
         else:
             # Payment: Bank is credited (money going out)
             ET.SubElement(bank_entry, "ISDEEMEDPOSITIVE").text = "Yes"
-            ET.SubElement(bank_entry, "AMOUNT").text = f"-{transaction_amount:.2f}"
+            ET.SubElement(bank_entry, "AMOUNT").text = f"{transaction_amount:.2f}"
         
         # Suspense ledger entry (opposite of bank)
         suspense_entry = ET.SubElement(voucher, "ALLLEDGERENTRIES.LIST")
@@ -127,7 +127,7 @@ class TallyXMLGenerator:
         if bank_is_debit:
             # Receipt: Suspense is credited (source of money)
             ET.SubElement(suspense_entry, "ISDEEMEDPOSITIVE").text = "Yes"
-            ET.SubElement(suspense_entry, "AMOUNT").text = f"-{transaction_amount:.2f}"
+            ET.SubElement(suspense_entry, "AMOUNT").text = f"{transaction_amount:.2f}"
         else:
             # Payment: Suspense is debited (destination of money)
             ET.SubElement(suspense_entry, "ISDEEMEDPOSITIVE").text = "No"
