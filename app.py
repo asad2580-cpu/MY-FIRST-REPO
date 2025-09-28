@@ -156,6 +156,7 @@ def process_bank_statements(company_name: str):
     uploaded_file = st.file_uploader(
         "Choose a bank statement file",
         type=['png', 'jpg', 'jpeg', 'pdf'],
+        accept_multiple_files=True,
         help="Upload a clear image or PDF of your bank statement (PNG, JPG, JPEG, PDF formats supported)",
         key="bank_statement_uploader"
     )

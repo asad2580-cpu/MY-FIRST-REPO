@@ -50,7 +50,7 @@ Required fields per transaction:
 - credit_amount: Credit amount (number only, null if none)
 - running_balance: Balance after transaction (number only)
 
-Return only valid JSON array. Include all visible transactions in chronological order."""
+Return only valid JSON array. Include all visible transactions in chronological order , and make sure to follow the accounting convention , if something is withrawal in the bank so it should be credit and if it is deposit then it must be debit"""
 
             # Optimize image before processing
             optimized_image_bytes = self._optimize_image(image_bytes)
