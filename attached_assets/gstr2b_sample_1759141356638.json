@@ -1,0 +1,158 @@
+{
+    "data": {
+        "itcsumm": {
+            "itcavl": {
+                "nonrevsup": {
+                    "sgst": 4465.38,
+                    "b2b": {
+                        "sgst": 4465.38,
+                        "txval": 73613.72,
+                        "cgst": 4465.38,
+                        "cess": 0,
+                        "igst": 0
+                    },
+                    "cgst": 4465.38,
+                    "cess": 0,
+                    "igst": 0
+                }
+            }
+        },
+        "rtnprd": "062025",
+        "docdata": {
+            "b2b": [
+                {
+                    "inv": [
+                        {
+                            "val": 1910.08,
+                            "sgst": 145.68,
+                            "rev": "N",
+                            "itcavl": "Y",
+                            "txval": 1618.72,
+                            "typ": "R",
+                            "cgst": 145.68,
+                            "inum": "093",
+                            "rsn": "",
+                            "cess": 0,
+                            "igst": 0,
+                            "dt": "28-06-2025",
+                            "imsStatus": "N",
+                            "pos": "07"
+                        }
+                    ],
+                    "trdnm": "BALAJI STATIONARY MART",
+                    "supfildt": "11-07-2025",
+                    "supprd": "062025",
+                    "ctin": "07AIYPG8195J1ZB"
+                },
+                {
+                    "inv": [
+                        {
+                            "val": 45024,
+                            "sgst": 2412,
+                            "rev": "N",
+                            "itcavl": "Y",
+                            "txval": 40200,
+                            "typ": "R",
+                            "cgst": 2412,
+                            "inum": "STC/25-26/297",
+                            "rsn": "",
+                            "cess": 0,
+                            "igst": 0,
+                            "dt": "09-06-2025",
+                            "imsStatus": "N",
+                            "pos": "07"
+                        }
+                    ],
+                    "trdnm": "SHIVAM TRADING COMPANY",
+                    "supfildt": "11-07-2025",
+                    "supprd": "062025",
+                    "ctin": "07AAQPK0950M1ZB"
+                },
+                {
+                    "inv": [
+                        {
+                            "val": 18950,
+                            "sgst": 1015.2,
+                            "rev": "N",
+                            "itcavl": "Y",
+                            "txval": 16920,
+                            "typ": "R",
+                            "cgst": 1015.2,
+                            "inum": "AI/24-25/0012",
+                            "rsn": "",
+                            "cess": 0,
+                            "igst": 0,
+                            "dt": "12-09-2024",
+                            "imsStatus": "N",
+                            "pos": "07"
+                        },
+                        {
+                            "val": 16660,
+                            "sgst": 892.5,
+                            "rev": "N",
+                            "itcavl": "Y",
+                            "txval": 14875,
+                            "typ": "R",
+                            "cgst": 892.5,
+                            "inum": "AI/24-25/0013",
+                            "rsn": "",
+                            "cess": 0,
+                            "igst": 0,
+                            "dt": "25-09-2024",
+                            "imsStatus": "N",
+                            "pos": "07"
+                        }
+                    ],
+                    "trdnm": "ACN INDUSTRIES PRIVATE LIMITED",
+                    "supfildt": "11-07-2025",
+                    "supprd": "062025",
+                    "ctin": "07AARCA6192M1ZX"
+                }
+            ]
+        },
+        "gendt": "14-07-2025",
+        "gstin": "07AABCS7613M2Z2",
+        "version": "1.0",
+        "cpsumm": {
+            "b2b": [
+                {
+                    "sgst": 1907.7,
+                    "ttldocs": 2,
+                    "trdnm": "ACN INDUSTRIES PRIVATE LIMITED",
+                    "supprd": "062025",
+                    "supfildt": "11-07-2025",
+                    "txval": 31795,
+                    "ctin": "07AARCA6192M1ZX",
+                    "cgst": 1907.7,
+                    "cess": 0,
+                    "igst": 0
+                },
+                {
+                    "sgst": 145.68,
+                    "ttldocs": 1,
+                    "trdnm": "BALAJI STATIONARY MART",
+                    "supprd": "062025",
+                    "supfildt": "11-07-2025",
+                    "txval": 1618.72,
+                    "ctin": "07AIYPG8195J1ZB",
+                    "cgst": 145.68,
+                    "cess": 0,
+                    "igst": 0
+                },
+                {
+                    "sgst": 2412,
+                    "ttldocs": 1,
+                    "trdnm": "SHIVAM TRADING COMPANY",
+                    "supprd": "062025",
+                    "supfildt": "11-07-2025",
+                    "txval": 40200,
+                    "ctin": "07AAQPK0950M1ZB",
+                    "cgst": 2412,
+                    "cess": 0,
+                    "igst": 0
+                }
+            ]
+        }
+    },
+    "chksum": "a8f7cbba951653bcd9a0c0c9022336ab97db315dcb4601ce2196c62c237506c4"
+}
