@@ -12,6 +12,9 @@ from invoice_extractor import InvoiceExtractor
 from invoice_xml_generator import InvoiceXMLGenerator
 from gst_portal_json_generator import GSTPortalJSONGenerator
 from gst_tally_xml_generator import GSTTallyXMLGenerator
+from gstr2b_dedicated_processor import GSTR2BDedicatedProcessor
+from gstr2b_masters_xml import GSTR2BMastersXMLGenerator
+from gstr2b_transactions_xml import GSTR2BTransactionsXMLGenerator
 
 # Set page configuration
 st.set_page_config(
@@ -718,9 +721,10 @@ def process_gst_returns(company_name: str, company_state: str | None):
         st.warning("⚠️ GSTIN should be exactly 15 characters")
     
     # Create tabs for different GST processing options
-    tab_upload, tab_create_gstr1, tab_bulk_process = st.tabs([
+    tab_upload, tab_create_gstr1, tab_gstr2b_dedicated, tab_bulk_process = st.tabs([
         "📥 Upload GST JSON to Tally", 
         "📤 Create GSTR1 from Sales Invoices", 
+        "🏛️ GSTR2B Dedicated Processor",
         "🔄 Bulk Process GST Data"
     ])
     
@@ -939,6 +943,9 @@ def process_gst_returns(company_name: str, company_state: str | None):
             else:
                 st.info("💡 No sales invoices found. Process some sales invoices first or upload sales invoice JSON files.")
     
+    with tab_gstr2b_dedicated:
+        process_gstr2b_dedicated(company_name, company_state, company_gstin)
+    
     with tab_bulk_process:
         st.subheader("🔄 Bulk Process GST Data")
         st.markdown("Advanced processing for multiple GST files and bulk operations")
@@ -1123,6 +1130,288 @@ def process_gst_returns(company_name: str, company_state: str | None):
         - **GSTR2B**: Purchase transactions with input tax credit
         - **GSTR1**: Sales transactions with output tax
         - **GSTR2A**: Purchase transactions (auto-matched)
+        """)
+
+def process_gstr2b_dedicated(company_name: str, company_state: str | None, company_gstin: str | None):
+    """Handle dedicated GSTR2B processing with separate Masters and Transactions XML generation."""
+    st.subheader("🏛️ GSTR2B Dedicated Processor")
+    st.markdown("Upload official GSTR2B JSON from GST portal to generate separate Masters and Transactions XML files for Tally")
+    
+    if not company_name or not company_state:
+        st.warning("⚠️ Please configure company name and state in the main settings above")
+        return
+    
+    if not company_gstin:
+        st.warning("⚠️ Please enter your company GSTIN in the GST section above")
+        return
+    
+    # File uploader for GSTR2B JSON
+    st.subheader("📥 Upload GSTR2B JSON File")
+    uploaded_gstr2b_file = st.file_uploader(
+        "Choose GSTR2B JSON file from GST portal",
+        type=['json'],
+        help="Upload the official GSTR2B JSON file downloaded from GST portal",
+        key="gstr2b_dedicated_uploader"
+    )
+    
+    if uploaded_gstr2b_file is not None:
+        try:
+            # Read and parse JSON
+            json_content = uploaded_gstr2b_file.read().decode('utf-8')
+            gstr2b_data = json.loads(json_content)
+            
+            st.success(f"✅ GSTR2B JSON file loaded successfully!")
+            
+            # Display basic file info
+            col1, col2 = st.columns(2)
+            with col1:
+                st.info(f"""
+                **File Details:**
+                - File Name: {uploaded_gstr2b_file.name}
+                - File Size: {len(json_content):,} characters
+                - Data Structure: Official GST Portal Format
+                """)
+            
+            with col2:
+                # Extract and display metadata
+                data = gstr2b_data.get('data', {})
+                metadata_info = f"""
+                **GSTR2B Details:**
+                - GSTIN: {data.get('gstin', 'Not found')}
+                - Return Period: {data.get('rtnprd', 'Not found')}
+                - Generated Date: {data.get('gendt', 'Not found')}
+                - Version: {data.get('version', 'Not found')}
+                """
+                st.info(metadata_info)
+            
+            # Validate GSTR2B data
+            processor = GSTR2BDedicatedProcessor(company_state)
+            validation_result = processor.validate_gstr2b_data(gstr2b_data)
+            
+            if validation_result['valid']:
+                st.success("✅ GSTR2B JSON structure is valid")
+                
+                if validation_result['warnings']:
+                    with st.expander("⚠️ Validation Notes"):
+                        for warning in validation_result['warnings']:
+                            st.warning(warning)
+                
+                # Process GSTR2B data
+                if st.button("🔄 Process GSTR2B Data", type="primary"):
+                    with st.spinner("Processing GSTR2B data..."):
+                        vendors, invoices, metadata = processor.process_gstr2b_json(gstr2b_data)
+                        
+                        if vendors and invoices:
+                            # Store in session state
+                            st.session_state['gstr2b_vendors'] = vendors
+                            st.session_state['gstr2b_invoices'] = invoices  
+                            st.session_state['gstr2b_metadata'] = metadata
+                            st.session_state['gstr2b_processed'] = True
+                            
+                            st.success(f"🎉 Successfully processed {len(vendors)} vendors with {len(invoices)} invoices!")
+                        else:
+                            st.error("❌ No data could be processed from the GSTR2B file")
+                
+            else:
+                st.error("❌ GSTR2B JSON validation failed:")
+                for error in validation_result['errors']:
+                    st.error(f"• {error}")
+                
+        except json.JSONDecodeError as e:
+            st.error(f"❌ Invalid JSON file: {str(e)}")
+        except Exception as e:
+            st.error(f"❌ Error processing GSTR2B file: {str(e)}")
+    
+    # Display processed data and XML generation options
+    if st.session_state.get('gstr2b_processed', False):
+        vendors = st.session_state.get('gstr2b_vendors', [])
+        invoices = st.session_state.get('gstr2b_invoices', [])
+        metadata = st.session_state.get('gstr2b_metadata', {})
+        
+        st.divider()
+        st.subheader("📊 Processed GSTR2B Data")
+        
+        # Summary statistics
+        processor = GSTR2BDedicatedProcessor(company_state)
+        summary = processor.get_vendor_summary(vendors)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Vendors", summary.get('total_vendors', 0))
+        with col2:
+            st.metric("Total Invoices", summary.get('total_invoices', 0))
+        with col3:
+            st.metric("Total Taxable Value", f"₹{summary.get('total_taxable_value', 0):,.2f}")
+        with col4:
+            st.metric("Total Tax Amount", f"₹{summary.get('total_tax_amount', 0):,.2f}")
+        
+        # Create tabs for data view and XML generation
+        tab_vendors, tab_invoices, tab_xml_generation = st.tabs(["👥 Vendors", "📄 Invoices", "🔄 Generate XML"])
+        
+        with tab_vendors:
+            st.subheader("👥 Vendor Summary")
+            vendor_data = []
+            for vendor in vendors:
+                vendor_data.append({
+                    'GSTIN': vendor.ctin,
+                    'Vendor Name': vendor.trdnm,
+                    'Invoices': vendor.total_invoices,
+                    'Taxable Value': f"₹{vendor.total_taxable_value:,.2f}",
+                    'CGST': f"₹{vendor.total_cgst:,.2f}",
+                    'SGST': f"₹{vendor.total_sgst:,.2f}",
+                    'IGST': f"₹{vendor.total_igst:,.2f}",
+                    'Total Tax': f"₹{vendor.total_cgst + vendor.total_sgst + vendor.total_igst:,.2f}"
+                })
+            
+            import pandas as pd
+            if vendor_data:
+                df_vendors = pd.DataFrame(vendor_data)
+                st.dataframe(df_vendors, use_container_width=True)
+        
+        with tab_invoices:
+            st.subheader("📄 Invoice Details")
+            invoice_data = []
+            for invoice in invoices[:100]:  # Show first 100 invoices
+                invoice_data.append({
+                    'Vendor': invoice.vendor_name[:30] + '...' if len(invoice.vendor_name) > 30 else invoice.vendor_name,
+                    'Invoice No': invoice.invoice_number,
+                    'Date': invoice.invoice_date,
+                    'Value': f"₹{invoice.invoice_value:,.2f}",
+                    'CGST': f"₹{invoice.cgst_amount:,.2f}",
+                    'SGST': f"₹{invoice.sgst_amount:,.2f}",
+                    'IGST': f"₹{invoice.igst_amount:,.2f}"
+                })
+            
+            if invoice_data:
+                df_invoices = pd.DataFrame(invoice_data)
+                st.dataframe(df_invoices, use_container_width=True)
+                if len(invoices) > 100:
+                    st.info(f"Showing first 100 invoices out of {len(invoices)} total")
+        
+        with tab_xml_generation:
+            st.subheader("🔄 Generate Tally XML Files")
+            st.markdown("Generate separate Masters and Transactions XML files for import into Tally")
+            
+            # Masters XML Generation
+            st.markdown("### 👥 Masters XML (Vendor Ledgers)")
+            masters_generator = GSTR2BMastersXMLGenerator(company_name, company_state)
+            masters_validation = masters_generator.validate_masters_xml(vendors)
+            
+            if masters_validation['valid']:
+                st.success(f"✅ Ready to generate Masters XML for {masters_validation['summary']['total_vendors']} vendors")
+                
+                if st.button("🔄 Generate Masters XML", type="primary"):
+                    with st.spinner("Generating Masters XML..."):
+                        masters_xml = masters_generator.generate_masters_xml(vendors, metadata)
+                        if masters_xml:
+                            st.session_state['gstr2b_masters_xml'] = masters_xml
+                            st.success("✅ Masters XML generated successfully!")
+                        else:
+                            st.error("❌ Failed to generate Masters XML")
+            else:
+                st.error("❌ Masters XML validation failed:")
+                for error in masters_validation['errors']:
+                    st.error(f"• {error}")
+            
+            # Transactions XML Generation  
+            st.markdown("### 📄 Transactions XML (Purchase Vouchers)")
+            transactions_generator = GSTR2BTransactionsXMLGenerator(company_name, company_state)
+            transactions_validation = transactions_generator.validate_transactions_xml(invoices)
+            
+            if transactions_validation['valid']:
+                summary = transactions_validation['summary']
+                st.success(f"✅ Ready to generate Transactions XML for {summary['total_invoices']} invoices")
+                st.info(f"📊 Interstate: {summary['interstate_invoices']}, Intrastate: {summary['intrastate_invoices']}")
+                
+                if st.button("🔄 Generate Transactions XML", type="primary"):
+                    with st.spinner("Generating Transactions XML..."):
+                        transactions_xml = transactions_generator.generate_transactions_xml(invoices, metadata)
+                        if transactions_xml:
+                            st.session_state['gstr2b_transactions_xml'] = transactions_xml
+                            st.success("✅ Transactions XML generated successfully!")
+                        else:
+                            st.error("❌ Failed to generate Transactions XML")
+            else:
+                st.error("❌ Transactions XML validation failed:")
+                for error in transactions_validation['errors']:
+                    st.error(f"• {error}")
+            
+            # Download section
+            st.divider()
+            st.subheader("💾 Download XML Files")
+            
+            col_download1, col_download2 = st.columns(2)
+            
+            with col_download1:
+                if 'gstr2b_masters_xml' in st.session_state:
+                    st.download_button(
+                        label="📥 Download Masters XML",
+                        data=st.session_state['gstr2b_masters_xml'],
+                        file_name=f"GSTR2B_Masters_{metadata.get('gstin', 'Unknown')}_{metadata.get('return_period', 'Unknown')}.xml",
+                        mime="application/xml"
+                    )
+                else:
+                    st.info("Generate Masters XML first")
+            
+            with col_download2:
+                if 'gstr2b_transactions_xml' in st.session_state:
+                    st.download_button(
+                        label="📥 Download Transactions XML",
+                        data=st.session_state['gstr2b_transactions_xml'],
+                        file_name=f"GSTR2B_Transactions_{metadata.get('gstin', 'Unknown')}_{metadata.get('return_period', 'Unknown')}.xml",
+                        mime="application/xml"
+                    )
+                else:
+                    st.info("Generate Transactions XML first")
+            
+            # Import instructions
+            if 'gstr2b_masters_xml' in st.session_state or 'gstr2b_transactions_xml' in st.session_state:
+                with st.expander("📖 How to Import XML into Tally"):
+                    st.markdown("""
+                    ### Import Order:
+                    1. **First import Masters XML** - This creates all vendor ledgers and tax ledgers
+                    2. **Then import Transactions XML** - This creates all purchase vouchers
+                    
+                    ### Steps for each XML import:
+                    1. Open Tally and select your company
+                    2. Go to **Gateway of Tally → Import → XML Files**
+                    3. Browse and select the XML file
+                    4. Click **Import** to process
+                    5. Verify the imported data in vouchers/ledgers
+                    
+                    ### Important Notes:
+                    - 🏢 Company name must match exactly in Tally
+                    - 👥 All vendor ledgers will be created under "GSTR2B Suppliers"
+                    - 🧾 All tax ledgers will be created under "GST Input Tax"
+                    - 💰 Purchase vouchers will reference the invoice numbers
+                    - 🔄 Always backup your Tally data before importing
+                    """)
+    
+    # Instructions
+    with st.expander("📖 How to use GSTR2B Dedicated Processor"):
+        st.markdown("""
+        ### Instructions:
+        1. **Download** GSTR2B JSON from GST portal (View Inward Supplies → Download JSON)
+        2. **Configure** company details and GSTIN above
+        3. **Upload** the official GSTR2B JSON file
+        4. **Process** the data to extract vendors and invoices
+        5. **Generate** separate Masters and Transactions XML files
+        6. **Import** XML files into Tally (Masters first, then Transactions)
+        
+        ### Features:
+        - ✅ Official GST portal JSON format support
+        - ✅ Separate Masters XML (vendors and tax ledgers)
+        - ✅ Separate Transactions XML (purchase vouchers)
+        - ✅ Automatic interstate/intrastate detection
+        - ✅ GST bifurcation (CGST+SGST vs IGST)
+        - ✅ Complete vendor master creation with GSTIN
+        - ✅ Proper tax ledger structure for Tally
+        
+        ### Benefits:
+        - 🎯 **Clean Import**: Masters and transactions are separate
+        - 📊 **Complete Data**: All vendor details and tax breakups
+        - 🔄 **Tally Ready**: XML format optimized for Tally import
+        - ✅ **Validated**: Data validation before XML generation
         """)
 
 if __name__ == "__main__":
