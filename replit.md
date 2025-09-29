@@ -1,8 +1,8 @@
-# Bank Statement Transaction Extractor
+# Tally ERP Automation Suite
 
 ## Overview
 
-This is a Streamlit-based web application that uses AI to extract transaction data from bank statement images and generate Tally-compatible XML files for accounting software integration. The application leverages Google's Gemini AI to perform optical character recognition and structured data extraction from PNG bank statement images, then formats the extracted transactions into XML that can be imported directly into Tally accounting software.
+This is a comprehensive Streamlit-based web application that automates the import of financial data into Tally ERP. The application processes bank statements, invoices, and GST returns using Google's Gemini AI, with specialized functionality for converting official GSTR2B JSON data into separate Masters and Transactions XML files for seamless Tally import.
 
 ## User Preferences
 
@@ -18,19 +18,25 @@ Preferred communication style: Simple, everyday language.
 
 ### Backend Architecture
 - **Core Components**:
-  - `TransactionExtractor`: Handles AI-powered data extraction from images
+  - `TransactionExtractor`: Handles AI-powered data extraction from bank statement images
   - `TallyXMLGenerator`: Converts extracted data to Tally-compatible XML format
-- **Data Processing Pipeline**:
-  1. Image upload and validation (PNG format)
-  2. AI-powered transaction extraction using Gemini
-  3. Data structuring using Pydantic models
-  4. XML generation for Tally import
-- **Error Handling**: Environment variable validation and user-friendly error messages
+  - `InvoiceProcessor`: AI-powered invoice data extraction and processing
+  - `GSTProcessor`: GST return file processing and validation
+  - `GSTR2BDedicatedProcessor`: Specialized processor for official GSTR2B JSON files
+  - `GSTR2BMastersXMLGenerator`: Creates Masters XML for vendor and tax ledgers
+  - `GSTR2BTransactionsXMLGenerator`: Creates Transactions XML for purchase vouchers
+- **Data Processing Pipelines**:
+  1. **Bank Statements**: Image upload → AI extraction → XML generation
+  2. **Invoices**: Image/PDF upload → AI processing → JSON/XML output
+  3. **GST Returns**: JSON upload → validation → XML conversion
+  4. **GSTR2B Dedicated**: Official JSON → separate Masters + Transactions XML
+- **Error Handling**: Comprehensive validation with user-friendly error messages
 
 ### Data Models
-- **Transaction Schema**: Pydantic model with fields for date, narration, debit/credit amounts, and running balance
-- **XML Structure**: Tally-specific envelope format with proper headers and data organization
-- **Configuration**: Company name and bank ledger mapping for Tally integration
+- **Transaction Schema**: Bank statement transactions with date, narration, amounts, and balance
+- **Invoice Schema**: Sales/purchase invoices with GST details and line items
+- **GSTR2B Models**: Vendor and invoice models for GST purchase data
+- **XML Structures**: Multiple Tally-compatible formats for different data types
 
 ### AI Integration
 - **Provider**: Google Gemini AI for optical character recognition and data extraction

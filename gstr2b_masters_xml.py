@@ -124,15 +124,15 @@ class GSTR2BMastersXMLGenerator:
                 self._create_tax_ledger(parent, f"Input CGST {rate}%", "GST Input Tax")
                 # Input SGST
                 self._create_tax_ledger(parent, f"Input SGST {rate}%", "GST Input Tax")
-                # Input IGST (rate is usually double for IGST)
-                self._create_tax_ledger(parent, f"Input IGST {rate * 2}%", "GST Input Tax")
+                # Input IGST (use the actual IGST rate)
+                self._create_tax_ledger(parent, f"Input IGST {rate}%", "GST Input Tax")
         
         # Create common tax ledgers that might be needed
         common_rates = [2.5, 6, 9, 14, 18, 28]
         for rate in common_rates:
             self._create_tax_ledger(parent, f"Input CGST {rate}%", "GST Input Tax")
             self._create_tax_ledger(parent, f"Input SGST {rate}%", "GST Input Tax")
-            self._create_tax_ledger(parent, f"Input IGST {rate * 2}%", "GST Input Tax")
+            self._create_tax_ledger(parent, f"Input IGST {rate}%", "GST Input Tax")
     
     def _create_tax_ledger(self, parent: ET.Element, ledger_name: str, group_name: str):
         """Create a GST tax ledger."""
